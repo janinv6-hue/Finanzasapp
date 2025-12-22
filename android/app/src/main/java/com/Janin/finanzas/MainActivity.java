@@ -1,0 +1,5 @@
+package com.Janin.finanzas;
+
+import com.getcapacitor.BridgeActivity;
+
+public class MainActivity extends BridgeActivity {}

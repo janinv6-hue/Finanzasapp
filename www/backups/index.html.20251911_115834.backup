@@ -1,0 +1,1153 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestor de Finanzas Personales - VERSIÓN FINAL</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .glass-effect {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+        .scrollbar-hide::-webkit-scrollbar {
+            display: none;
+        }
+        .scrollbar-hide {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef } = React;
+
+        // Categorías predefinidas
+        const CATEGORIAS_INICIALES = {
+            ingresos: ['Salario', 'Freelance', 'Inversiones', 'Otros Ingresos'],
+            gastos: ['Alimentación', 'Transporte', 'Vivienda', 'Entretenimiento', 'Salud', 'Educación', 'Otros Gastos']
+        };
+
+        // Colores para gráficos
+        const COLORES_GRAFICOS = [
+            '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6',
+            '#EC4899', '#14B8A6', '#F97316', '#6366F1', '#84CC16',
+            '#06B6D4', '#A855F7', '#F43F5E', '#0EA5E9', '#22C55E'
+        ];
+
+        function GraficoPastel({ datos, titulo }) {
+            const canvasRef = useRef(null);
+            const chartRef = useRef(null);
+
+            useEffect(() => {
+                if (!canvasRef.current || !datos || datos.length === 0) return;
+
+                // Destruir gráfico anterior si existe
+                if (chartRef.current) {
+                    chartRef.current.destroy();
+                }
+
+                const ctx = canvasRef.current.getContext('2d');
+                chartRef.current = new Chart(ctx, {
+                    type: 'pie',
+                    data: {
+                        labels: datos.map(d => d.categoria),
+                        datasets: [{
+                            data: datos.map(d => d.monto),
+                            backgroundColor: COLORES_GRAFICOS.slice(0, datos.length),
+                            borderWidth: 2,
+                            borderColor: '#fff'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: true,
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: {
+                                    padding: 15,
+                                    font: {
+                                        size: 12
+                                    }
+                                }
+                            },
+                            title: {
+                                display: true,
+                                text: titulo,
+                                font: {
+                                    size: 16,
+                                    weight: 'bold'
+                                },
+                                padding: 20
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const label = context.label || '';
+                                        const value = context.parsed || 0;
+                                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                        const percentage = ((value / total) * 100).toFixed(1);
+                                        return `${label}: $${value.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (${percentage}%)`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+
+                return () => {
+                    if (chartRef.current) {
+                        chartRef.current.destroy();
+                    }
+                };
+            }, [datos, titulo]);
+
+            if (!datos || datos.length === 0) {
+                return (
+                    <div className="text-center py-12 text-gray-500">
+                        <div className="text-4xl mb-2">📊</div>
+                        <p>No hay datos para mostrar</p>
+                    </div>
+                );
+            }
+
+            return <canvas ref={canvasRef}></canvas>;
+        }
+
+        function GraficoBarras({ datos, titulo }) {
+            const canvasRef = useRef(null);
+            const chartRef = useRef(null);
+
+            useEffect(() => {
+                if (!canvasRef.current || !datos || datos.length === 0) return;
+
+                if (chartRef.current) {
+                    chartRef.current.destroy();
+                }
+
+                const ctx = canvasRef.current.getContext('2d');
+                chartRef.current = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: datos.map(d => d.categoria),
+                        datasets: [{
+                            label: 'Monto ($)',
+                            data: datos.map(d => d.monto),
+                            backgroundColor: COLORES_GRAFICOS.slice(0, datos.length),
+                            borderWidth: 0,
+                            borderRadius: 8
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: true,
+                        plugins: {
+                            legend: {
+                                display: false
+                            },
+                            title: {
+                                display: true,
+                                text: titulo,
+                                font: {
+                                    size: 16,
+                                    weight: 'bold'
+                                },
+                                padding: 20
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const value = context.parsed.y || 0;
+                                        return `$${value.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                ticks: {
+                                    callback: function(value) {
+                                        return '$' + value.toLocaleString('es-MX');
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+
+                return () => {
+                    if (chartRef.current) {
+                        chartRef.current.destroy();
+                    }
+                };
+            }, [datos, titulo]);
+
+            if (!datos || datos.length === 0) {
+                return (
+                    <div className="text-center py-12 text-gray-500">
+                        <div className="text-4xl mb-2">📊</div>
+                        <p>No hay datos para mostrar</p>
+                    </div>
+                );
+            }
+
+            return <canvas ref={canvasRef}></canvas>;
+        }
+
+        function App() {
+            const [pestanaActiva, setPestanaActiva] = useState('transacciones');
+            const [transacciones, setTransacciones] = useState([]);
+            const [categorias, setCategorias] = useState(CATEGORIAS_INICIALES);
+            const [nuevaCategoria, setNuevaCategoria] = useState('');
+            const [tipoCategoria, setTipoCategoria] = useState('gastos');
+            
+            // Estados para filtros
+            const [filtroModo, setFiltroModo] = useState('mes-actual');
+            const [mesSeleccionado, setMesSeleccionado] = useState(new Date().getMonth());
+            const [anioSeleccionado, setAnioSeleccionado] = useState(new Date().getFullYear());
+            const [fechaInicio, setFechaInicio] = useState('');
+            const [fechaFin, setFechaFin] = useState('');
+            const [filtroCategoria, setFiltroCategoria] = useState('todas');
+            const [filtroTipo, setFiltroTipo] = useState('todos');
+            
+            const [formulario, setFormulario] = useState({
+                tipo: 'gasto',
+                monto: '',
+                descripcion: '',
+                categoria: '',
+                fecha: new Date().toISOString().split('T')[0]
+            });
+
+            // Cargar datos del localStorage al iniciar
+            useEffect(() => {
+                const datosGuardados = localStorage.getItem('transacciones');
+                if (datosGuardados) {
+                    setTransacciones(JSON.parse(datosGuardados));
+                }
+                
+                const categoriasGuardadas = localStorage.getItem('categorias');
+                if (categoriasGuardadas) {
+                    setCategorias(JSON.parse(categoriasGuardadas));
+                }
+            }, []);
+
+            // Guardar en localStorage
+            useEffect(() => {
+                if (transacciones.length > 0) {
+                    localStorage.setItem('transacciones', JSON.stringify(transacciones));
+                }
+            }, [transacciones]);
+
+            useEffect(() => {
+                localStorage.setItem('categorias', JSON.stringify(categorias));
+            }, [categorias]);
+
+            // Función para filtrar transacciones
+            const transaccionesFiltradas = useMemo(() => {
+                let resultado = [...transacciones];
+
+                if (filtroModo === 'mes-actual') {
+                    const hoy = new Date();
+                    resultado = resultado.filter(t => {
+                        const fechaT = new Date(t.fecha);
+                        return fechaT.getMonth() === hoy.getMonth() && 
+                               fechaT.getFullYear() === hoy.getFullYear();
+                    });
+                } else if (filtroModo === 'mes-especifico') {
+                    resultado = resultado.filter(t => {
+                        const fechaT = new Date(t.fecha);
+                        return fechaT.getMonth() === mesSeleccionado && 
+                               fechaT.getFullYear() === anioSeleccionado;
+                    });
+                } else if (filtroModo === 'rango-fechas' && fechaInicio && fechaFin) {
+                    const inicio = new Date(fechaInicio);
+                    const fin = new Date(fechaFin);
+                    resultado = resultado.filter(t => {
+                        const fechaT = new Date(t.fecha);
+                        return fechaT >= inicio && fechaT <= fin;
+                    });
+                }
+
+                if (filtroTipo !== 'todos') {
+                    resultado = resultado.filter(t => {
+                        if (filtroTipo === 'ingresos') return t.tipo === 'ingreso';
+                        if (filtroTipo === 'gastos') return t.tipo === 'gasto';
+                        return true;
+                    });
+                }
+
+                if (filtroCategoria !== 'todas') {
+                    resultado = resultado.filter(t => t.categoria === filtroCategoria);
+                }
+
+                return resultado;
+            }, [transacciones, filtroModo, mesSeleccionado, anioSeleccionado, fechaInicio, fechaFin, filtroCategoria, filtroTipo]);
+
+            // Calcular datos por categoría
+            const datosPorCategoria = useMemo(() => {
+                const gastos = {};
+                const ingresos = {};
+
+                transaccionesFiltradas.forEach(t => {
+                    if (t.tipo === 'gasto') {
+                        gastos[t.categoria] = (gastos[t.categoria] || 0) + t.monto;
+                    } else {
+                        ingresos[t.categoria] = (ingresos[t.categoria] || 0) + t.monto;
+                    }
+                });
+
+                const gastosArray = Object.entries(gastos)
+                    .map(([categoria, monto]) => ({ categoria, monto }))
+                    .sort((a, b) => b.monto - a.monto);
+
+                const ingresosArray = Object.entries(ingresos)
+                    .map(([categoria, monto]) => ({ categoria, monto }))
+                    .sort((a, b) => b.monto - a.monto);
+
+                const totalGastos = gastosArray.reduce((sum, item) => sum + item.monto, 0);
+                const totalIngresos = ingresosArray.reduce((sum, item) => sum + item.monto, 0);
+
+                return {
+                    gastos: gastosArray,
+                    ingresos: ingresosArray,
+                    totalGastos,
+                    totalIngresos
+                };
+            }, [transaccionesFiltradas]);
+
+            // Calcular balance
+            const calcularBalance = () => {
+                const ingresos = transaccionesFiltradas
+                    .filter(t => t.tipo === 'ingreso')
+                    .reduce((sum, t) => sum + parseFloat(t.monto), 0);
+                
+                const gastos = transaccionesFiltradas
+                    .filter(t => t.tipo === 'gasto')
+                    .reduce((sum, t) => sum + parseFloat(t.monto), 0);
+                
+                return {
+                    ingresos,
+                    gastos,
+                    balance: ingresos - gastos,
+                    cantidad: transaccionesFiltradas.length
+                };
+            };
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                
+                if (!formulario.monto || !formulario.descripcion || !formulario.categoria) {
+                    alert('Por favor completa todos los campos');
+                    return;
+                }
+
+                const nuevaTransaccion = {
+                    id: Date.now(),
+                    ...formulario,
+                    monto: parseFloat(formulario.monto)
+                };
+
+                setTransacciones([nuevaTransaccion, ...transacciones]);
+                
+                setFormulario({
+                    tipo: 'gasto',
+                    monto: '',
+                    descripcion: '',
+                    categoria: '',
+                    fecha: new Date().toISOString().split('T')[0]
+                });
+            };
+
+            const eliminarTransaccion = (id) => {
+                if (confirm('¿Estás seguro de eliminar esta transacción?')) {
+                    setTransacciones(transacciones.filter(t => t.id !== id));
+                }
+            };
+
+            const agregarCategoria = () => {
+                if (!nuevaCategoria.trim()) {
+                    alert('Por favor escribe un nombre para la categoría');
+                    return;
+                }
+
+                const categoriaExiste = categorias[tipoCategoria].includes(nuevaCategoria.trim());
+                if (categoriaExiste) {
+                    alert('Esta categoría ya existe');
+                    return;
+                }
+
+                setCategorias({
+                    ...categorias,
+                    [tipoCategoria]: [...categorias[tipoCategoria], nuevaCategoria.trim()]
+                });
+                
+                setNuevaCategoria('');
+            };
+
+            const eliminarCategoria = (tipo, categoria) => {
+                if (confirm(`¿Eliminar la categoría "${categoria}"?`)) {
+                    setCategorias({
+                        ...categorias,
+                        [tipo]: categorias[tipo].filter(cat => cat !== categoria)
+                    });
+                }
+            };
+
+            const restaurarCategorias = () => {
+                if (confirm('¿Restaurar las categorías por defecto? Esto eliminará tus categorías personalizadas.')) {
+                    setCategorias(CATEGORIAS_INICIALES);
+                }
+            };
+
+            // ============== EXPORTACIÓN A EXCEL ==============
+            const exportarAExcel = () => {
+                if (transaccionesFiltradas.length === 0) {
+                    alert('No hay transacciones para exportar en el período seleccionado');
+                    return;
+                }
+
+                const { ingresos: ingresosTemp, gastos: gastosTemp, balance: balanceTemp } = calcularBalance();
+
+                // Preparar datos para Excel
+                const datosExcel = transaccionesFiltradas.map(t => ({
+                    'Fecha': new Date(t.fecha).toLocaleDateString('es-MX'),
+                    'Tipo': t.tipo === 'ingreso' ? 'Ingreso' : 'Gasto',
+                    'Categoría': t.categoria,
+                    'Descripción': t.descripcion,
+                    'Monto': t.monto
+                }));
+
+                // Agregar filas de totales
+                datosExcel.push({});
+                datosExcel.push({
+                    'Fecha': '',
+                    'Tipo': '',
+                    'Categoría': '',
+                    'Descripción': 'TOTAL INGRESOS',
+                    'Monto': ingresosTemp
+                });
+                datosExcel.push({
+                    'Fecha': '',
+                    'Tipo': '',
+                    'Categoría': '',
+                    'Descripción': 'TOTAL GASTOS',
+                    'Monto': gastosTemp
+                });
+                datosExcel.push({
+                    'Fecha': '',
+                    'Tipo': '',
+                    'Categoría': '',
+                    'Descripción': 'BALANCE',
+                    'Monto': balanceTemp
+                });
+
+                // Crear libro de Excel
+                const ws = XLSX.utils.json_to_sheet(datosExcel);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, 'Transacciones');
+
+                // Generar nombre del período
+                let nombrePeriodo = 'Todas';
+                if (filtroModo === 'mes-actual') {
+                    nombrePeriodo = 'Mes_Actual';
+                } else if (filtroModo === 'mes-especifico') {
+                    const meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
+                                   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+                    nombrePeriodo = `${meses[mesSeleccionado]}_${anioSeleccionado}`;
+                } else if (filtroModo === 'rango-fechas' && fechaInicio && fechaFin) {
+                    nombrePeriodo = 'Rango_Personalizado';
+                }
+
+                const fecha = new Date().toISOString().split('T')[0];
+                const nombreArchivo = `Finanzas_${nombrePeriodo}_${fecha}.xlsx`;
+
+                // Descargar
+                XLSX.writeFile(wb, nombreArchivo);
+                
+                alert('✅ Archivo Excel exportado correctamente');
+            };
+
+            const getNombrePeriodo = () => {
+                if (filtroModo === 'mes-actual') {
+                    return 'Mes Actual';
+                } else if (filtroModo === 'mes-especifico') {
+                    const meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
+                                   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+                    return `${meses[mesSeleccionado]} ${anioSeleccionado}`;
+                } else if (filtroModo === 'rango-fechas') {
+                    if (fechaInicio && fechaFin) {
+                        return `${new Date(fechaInicio).toLocaleDateString('es-MX')} - ${new Date(fechaFin).toLocaleDateString('es-MX')}`;
+                    }
+                    return 'Rango Personalizado';
+                } else {
+                    return 'Todas las Transacciones';
+                }
+            };
+
+            const { ingresos, gastos, balance, cantidad } = calcularBalance();
+            const categoriasDisponibles = formulario.tipo === 'ingreso' 
+                ? categorias.ingresos 
+                : categorias.gastos;
+            const todasLasCategorias = [...new Set(transacciones.map(t => t.categoria))];
+
+            return (
+                <div className="min-h-screen p-4 md:p-8">
+                    <div className="max-w-7xl mx-auto">
+                        {/* Header */}
+                        <div className="text-center mb-8">
+                            <h1 className="text-4xl md:text-5xl font-bold text-white mb-2">
+                                💰 Gestor de Finanzas
+                            </h1>
+                            <p className="text-blue-100 mb-6">✨ Versión Final Completa - Lista para Usar</p>
+                            
+                            {/* Pestañas */}
+                            <div className="flex justify-center gap-4 flex-wrap">
+                                <button
+                                    onClick={() => setPestanaActiva('transacciones')}
+                                    className={`px-6 py-3 rounded-lg font-semibold transition-all ${
+                                        pestanaActiva === 'transacciones'
+                                            ? 'bg-white text-blue-600 shadow-lg'
+                                            : 'bg-white/20 text-white hover:bg-white/30'
+                                    }`}
+                                >
+                                    📊 Transacciones
+                                </button>
+                                <button
+                                    onClick={() => setPestanaActiva('analisis')}
+                                    className={`px-6 py-3 rounded-lg font-semibold transition-all ${
+                                        pestanaActiva === 'analisis'
+                                            ? 'bg-white text-blue-600 shadow-lg'
+                                            : 'bg-white/20 text-white hover:bg-white/30'
+                                    }`}
+                                >
+                                    📈 Análisis
+                                </button>
+                                <button
+                                    onClick={() => setPestanaActiva('categorias')}
+                                    className={`px-6 py-3 rounded-lg font-semibold transition-all ${
+                                        pestanaActiva === 'categorias'
+                                            ? 'bg-white text-blue-600 shadow-lg'
+                                            : 'bg-white/20 text-white hover:bg-white/30'
+                                    }`}
+                                >
+                                    🏷️ Categorías
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Pestaña de Transacciones */}
+                        {pestanaActiva === 'transacciones' && (
+                            <>
+                                {/* Balance Cards */}
+                                <div className="glass-effect rounded-xl p-6 shadow-lg mb-6">
+                                    <div className="flex justify-between items-center mb-4 flex-wrap gap-3">
+                                        <div>
+                                            <h2 className="text-2xl font-bold text-gray-800">
+                                                📈 Balance: {getNombrePeriodo()}
+                                            </h2>
+                                            <div className="text-sm text-gray-600 mt-1">
+                                                {cantidad} transacción{cantidad !== 1 ? 'es' : ''}
+                                            </div>
+                                        </div>
+                                        <button
+                                            onClick={exportarAExcel}
+                                            className="bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-6 rounded-lg shadow-lg transition-all transform hover:scale-105 flex items-center gap-2"
+                                        >
+                                            📊 Exportar a Excel
+                                        </button>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-6 border-2 border-green-200">
+                                            <div className="text-sm text-green-700 font-medium mb-1">Ingresos</div>
+                                            <div className="text-3xl font-bold text-green-600">
+                                                ${ingresos.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="bg-gradient-to-br from-red-50 to-red-100 rounded-xl p-6 border-2 border-red-200">
+                                            <div className="text-sm text-red-700 font-medium mb-1">Gastos</div>
+                                            <div className="text-3xl font-bold text-red-600">
+                                                ${gastos.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                                            </div>
+                                        </div>
+                                        
+                                        <div className={`bg-gradient-to-br rounded-xl p-6 border-2 ${
+                                            balance >= 0 
+                                                ? 'from-blue-50 to-blue-100 border-blue-200' 
+                                                : 'from-orange-50 to-orange-100 border-orange-200'
+                                        }`}>
+                                            <div className={`text-sm font-medium mb-1 ${
+                                                balance >= 0 ? 'text-blue-700' : 'text-orange-700'
+                                            }`}>
+                                                Balance
+                                            </div>
+                                            <div className={`text-3xl font-bold ${
+                                                balance >= 0 ? 'text-blue-600' : 'text-orange-600'
+                                            }`}>
+                                                ${balance.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                                    {/* Formulario */}
+                                    <div className="glass-effect rounded-xl p-6 shadow-lg">
+                                        <h2 className="text-2xl font-bold text-gray-800 mb-6">
+                                            ➕ Nueva Transacción
+                                        </h2>
+                                        
+                                        <form onSubmit={handleSubmit} className="space-y-4">
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">Tipo</label>
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setFormulario({...formulario, tipo: 'ingreso', categoria: ''})}
+                                                        className={`py-3 px-4 rounded-lg font-medium transition-all ${
+                                                            formulario.tipo === 'ingreso'
+                                                                ? 'bg-green-500 text-white shadow-lg'
+                                                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                                        }`}
+                                                    >
+                                                        ⬆️ Ingreso
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setFormulario({...formulario, tipo: 'gasto', categoria: ''})}
+                                                        className={`py-3 px-4 rounded-lg font-medium transition-all ${
+                                                            formulario.tipo === 'gasto'
+                                                                ? 'bg-red-500 text-white shadow-lg'
+                                                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                                        }`}
+                                                    >
+                                                        ⬇️ Gasto
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">Monto</label>
+                                                <input
+                                                    type="number"
+                                                    step="0.01"
+                                                    value={formulario.monto}
+                                                    onChange={(e) => setFormulario({...formulario, monto: e.target.value})}
+                                                    className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all"
+                                                    placeholder="0.00"
+                                                />
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">Categoría</label>
+                                                <select
+                                                    value={formulario.categoria}
+                                                    onChange={(e) => setFormulario({...formulario, categoria: e.target.value})}
+                                                    className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all"
+                                                >
+                                                    <option value="">Selecciona una categoría</option>
+                                                    {categoriasDisponibles.map(cat => (
+                                                        <option key={cat} value={cat}>{cat}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">Descripción</label>
+                                                <input
+                                                    type="text"
+                                                    value={formulario.descripcion}
+                                                    onChange={(e) => setFormulario({...formulario, descripcion: e.target.value})}
+                                                    className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all"
+                                                    placeholder="Ej: Compra de supermercado"
+                                                />
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">Fecha</label>
+                                                <input
+                                                    type="date"
+                                                    value={formulario.fecha}
+                                                    onChange={(e) => setFormulario({...formulario, fecha: e.target.value})}
+                                                    className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all"
+                                                />
+                                            </div>
+
+                                            <button
+                                                type="submit"
+                                                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg shadow-lg transition-all transform hover:scale-105"
+                                            >
+                                                Agregar Transacción
+                                            </button>
+                                        </form>
+                                    </div>
+
+                                    {/* Lista de Transacciones */}
+                                    <div className="glass-effect rounded-xl p-6 shadow-lg">
+                                        <h2 className="text-2xl font-bold text-gray-800 mb-6">
+                                            📋 Transacciones
+                                        </h2>
+                                        
+                                        <div className="space-y-3 max-h-[600px] overflow-y-auto scrollbar-hide">
+                                            {transaccionesFiltradas.length === 0 ? (
+                                                <div className="text-center py-12 text-gray-500">
+                                                    <div className="text-6xl mb-4">🔍</div>
+                                                    <p className="font-semibold">No hay transacciones</p>
+                                                    <p className="text-sm">para este período o filtro</p>
+                                                </div>
+                                            ) : (
+                                                transaccionesFiltradas.map(t => (
+                                                    <div
+                                                        key={t.id}
+                                                        className={`p-4 rounded-lg border-l-4 ${
+                                                            t.tipo === 'ingreso'
+                                                                ? 'bg-green-50 border-green-500'
+                                                                : 'bg-red-50 border-red-500'
+                                                        } hover:shadow-md transition-all`}
+                                                    >
+                                                        <div className="flex justify-between items-start mb-2">
+                                                            <div className="flex-1">
+                                                                <div className="font-semibold text-gray-800">
+                                                                    {t.descripcion}
+                                                                </div>
+                                                                <div className="text-sm text-gray-600">
+                                                                    {t.categoria} • {new Date(t.fecha).toLocaleDateString('es-MX')}
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex items-center gap-2">
+                                                                <div className={`font-bold text-lg ${
+                                                                    t.tipo === 'ingreso' ? 'text-green-600' : 'text-red-600'
+                                                                }`}>
+                                                                    {t.tipo === 'ingreso' ? '+' : '-'}${t.monto.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                                                                </div>
+                                                                <button
+                                                                    onClick={() => eliminarTransaccion(t.id)}
+                                                                    className="text-red-500 hover:text-red-700 ml-2 text-xl"
+                                                                    title="Eliminar"
+                                                                >
+                                                                    🗑️
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Panel de Filtros */}
+                                <div className="glass-effect rounded-xl p-6 shadow-lg mt-8">
+                                    <h2 className="text-2xl font-bold text-gray-800 mb-4">
+                                        🔍 Filtros de Período
+                                    </h2>
+                                    
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                                        <button
+                                            onClick={() => setFiltroModo('mes-actual')}
+                                            className={`py-3 px-4 rounded-lg font-medium transition-all ${
+                                                filtroModo === 'mes-actual'
+                                                    ? 'bg-blue-600 text-white shadow-lg'
+                                                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                            }`}
+                                        >
+                                            📅 Mes Actual
+                                        </button>
+                                        <button
+                                            onClick={() => setFiltroModo('mes-especifico')}
+                                            className={`py-3 px-4 rounded-lg font-medium transition-all ${
+                                                filtroModo === 'mes-especifico'
+                                                    ? 'bg-blue-600 text-white shadow-lg'
+                                                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                            }`}
+                                        >
+                                            📆 Mes Específico
+                                        </button>
+                                        <button
+                                            onClick={() => setFiltroModo('rango-fechas')}
+                                            className={`py-3 px-4 rounded-lg font-medium transition-all ${
+                                                filtroModo === 'rango-fechas'
+                                                    ? 'bg-blue-600 text-white shadow-lg'
+                                                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                            }`}
+                                        >
+                                            📊 Rango Fechas
+                                        </button>
+                                        <button
+                                            onClick={() => setFiltroModo('todas')}
+                                            className={`py-3 px-4 rounded-lg font-medium transition-all ${
+                                                filtroModo === 'todas'
+                                                    ? 'bg-blue-600 text-white shadow-lg'
+                                                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                            }`}
+                                        >
+                                            🗂️ Todo
+                                        </button>
+                                    </div>
+
+                                    {filtroModo === 'mes-especifico' && (
+                                        <div className="grid grid-cols-2 gap-4 mb-4">
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">Mes</label>
+                                                <select
+                                                    value={mesSeleccionado}
+                                                    onChange={(e) => setMesSeleccionado(parseInt(e.target.value))}
+                                                    className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:border-blue-500 outline-none"
+                                                >
+                                                    {['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
+                                                      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'].map((mes, idx) => (
+                                                        <option key={idx} value={idx}>{mes}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">Año</label>
+                                                <select
+                                                    value={anioSeleccionado}
+                                                    onChange={(e) => setAnioSeleccionado(parseInt(e.target.value))}
+                                                    className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:border-blue-500 outline-none"
+                                                >
+                                                    {[2020, 2021, 2022, 2023, 2024, 2025, 2026].map(anio => (
+                                                        <option key={anio} value={anio}>{anio}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {filtroModo === 'rango-fechas' && (
+                                        <div className="grid grid-cols-2 gap-4 mb-4">
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">Desde</label>
+                                                <input
+                                                    type="date"
+                                                    value={fechaInicio}
+                                                    onChange={(e) => setFechaInicio(e.target.value)}
+                                                    className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:border-blue-500 outline-none"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">Hasta</label>
+                                                <input
+                                                    type="date"
+                                                    value={fechaFin}
+                                                    onChange={(e) => setFechaFin(e.target.value)}
+                                                    className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:border-blue-500 outline-none"
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">Tipo de Transacción</label>
+                                            <select
+                                                value={filtroTipo}
+                                                onChange={(e) => setFiltroTipo(e.target.value)}
+                                                className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:border-blue-500 outline-none"
+                                            >
+                                                <option value="todos">Todos</option>
+                                                <option value="ingresos">Solo Ingresos</option>
+                                                <option value="gastos">Solo Gastos</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">Categoría</label>
+                                            <select
+                                                value={filtroCategoria}
+                                                onChange={(e) => setFiltroCategoria(e.target.value)}
+                                                className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:border-blue-500 outline-none"
+                                            >
+                                                <option value="todas">Todas</option>
+                                                {todasLasCategorias.map(cat => (
+                                                    <option key={cat} value={cat}>{cat}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                            </>
+                        )}
+
+                        {/* Pestaña de Análisis */}
+                        {pestanaActiva === 'analisis' && (
+                            <div>
+                                <div className="glass-effect rounded-xl p-6 shadow-lg mb-6">
+                                    <h2 className="text-2xl font-bold text-gray-800 mb-2">
+                                        📈 Análisis: {getNombrePeriodo()}
+                                    </h2>
+                                    <p className="text-gray-600 text-sm">
+                                        Los gráficos reflejan los filtros aplicados en la pestaña de transacciones
+                                    </p>
+                                </div>
+
+                                {transaccionesFiltradas.length === 0 ? (
+                                    <div className="glass-effect rounded-xl p-12 shadow-lg text-center">
+                                        <div className="text-6xl mb-4">📊</div>
+                                        <p className="text-xl font-semibold text-gray-700 mb-2">
+                                            No hay datos para analizar
+                                        </p>
+                                        <p className="text-gray-600">
+                                            Agrega algunas transacciones o ajusta los filtros para ver el análisis
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <>
+                                        {/* Gráficos de Pastel */}
+                                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                                            <div className="glass-effect rounded-xl p-6 shadow-lg">
+                                                <GraficoPastel 
+                                                    datos={datosPorCategoria.gastos} 
+                                                    titulo="Distribución de Gastos"
+                                                />
+                                            </div>
+                                            <div className="glass-effect rounded-xl p-6 shadow-lg">
+                                                <GraficoPastel 
+                                                    datos={datosPorCategoria.ingresos} 
+                                                    titulo="Distribución de Ingresos"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        {/* Gráficos de Barras */}
+                                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                                            <div className="glass-effect rounded-xl p-6 shadow-lg">
+                                                <GraficoBarras 
+                                                    datos={datosPorCategoria.gastos} 
+                                                    titulo="Gastos por Categoría"
+                                                />
+                                            </div>
+                                            <div className="glass-effect rounded-xl p-6 shadow-lg">
+                                                <GraficoBarras 
+                                                    datos={datosPorCategoria.ingresos} 
+                                                    titulo="Ingresos por Categoría"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        {/* Tablas Detalladas */}
+                                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                            {/* Tabla de Gastos */}
+                                            <div className="glass-effect rounded-xl p-6 shadow-lg">
+                                                <h3 className="text-xl font-bold text-red-600 mb-4">
+                                                    ⬇️ Detalle de Gastos
+                                                </h3>
+                                                <div className="space-y-2">
+                                                    {datosPorCategoria.gastos.map((item, idx) => {
+                                                        const porcentaje = ((item.monto / datosPorCategoria.totalGastos) * 100).toFixed(1);
+                                                        return (
+                                                            <div 
+                                                                key={idx}
+                                                                className="flex justify-between items-center p-3 bg-red-50 rounded-lg border border-red-100"
+                                                            >
+                                                                <div className="flex items-center gap-3">
+                                                                    <div 
+                                                                        className="w-4 h-4 rounded"
+                                                                        style={{backgroundColor: COLORES_GRAFICOS[idx]}}
+                                                                    />
+                                                                    <span className="font-medium text-gray-800">
+                                                                        {item.categoria}
+                                                                    </span>
+                                                                </div>
+                                                                <div className="text-right">
+                                                                    <div className="font-bold text-red-600">
+                                                                        ${item.monto.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                                                                    </div>
+                                                                    <div className="text-xs text-gray-600">
+                                                                        {porcentaje}%
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                    {datosPorCategoria.gastos.length > 0 && (
+                                                        <div className="flex justify-between items-center p-3 bg-red-100 rounded-lg border-2 border-red-300 font-bold">
+                                                            <span className="text-gray-800">TOTAL</span>
+                                                            <span className="text-red-700">
+                                                                ${datosPorCategoria.totalGastos.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* Tabla de Ingresos */}
+                                            <div className="glass-effect rounded-xl p-6 shadow-lg">
+                                                <h3 className="text-xl font-bold text-green-600 mb-4">
+                                                    ⬆️ Detalle de Ingresos
+                                                </h3>
+                                                <div className="space-y-2">
+                                                    {datosPorCategoria.ingresos.map((item, idx) => {
+                                                        const porcentaje = ((item.monto / datosPorCategoria.totalIngresos) * 100).toFixed(1);
+                                                        return (
+                                                            <div 
+                                                                key={idx}
+                                                                className="flex justify-between items-center p-3 bg-green-50 rounded-lg border border-green-100"
+                                                            >
+                                                                <div className="flex items-center gap-3">
+                                                                    <div 
+                                                                        className="w-4 h-4 rounded"
+                                                                        style={{backgroundColor: COLORES_GRAFICOS[idx]}}
+                                                                    />
+                                                                    <span className="font-medium text-gray-800">
+                                                                        {item.categoria}
+                                                                    </span>
+                                                                </div>
+                                                                <div className="text-right">
+                                                                    <div className="font-bold text-green-600">
+                                                                        ${item.monto.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                                                                    </div>
+                                                                    <div className="text-xs text-gray-600">
+                                                                        {porcentaje}%
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                    {datosPorCategoria.ingresos.length > 0 && (
+                                                        <div className="flex justify-between items-center p-3 bg-green-100 rounded-lg border-2 border-green-300 font-bold">
+                                                            <span className="text-gray-800">TOTAL</span>
+                                                            <span className="text-green-700">
+                                                                ${datosPorCategoria.totalIngresos.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Pestaña de Categorías */}
+                        {pestanaActiva === 'categorias' && (
+                            <div className="max-w-4xl mx-auto">
+                                <div className="glass-effect rounded-xl p-8 shadow-lg">
+                                    <div className="flex justify-between items-center mb-6">
+                                        <h2 className="text-3xl font-bold text-gray-800">
+                                            🏷️ Gestión de Categorías
+                                        </h2>
+                                        <button
+                                            onClick={restaurarCategorias}
+                                            className="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg text-sm transition-all"
+                                        >
+                                            🔄 Restaurar por defecto
+                                        </button>
+                                    </div>
+
+                                    <div className="bg-blue-50 rounded-lg p-6 mb-8">
+                                        <h3 className="text-lg font-semibold text-gray-800 mb-4">
+                                            ➕ Agregar Nueva Categoría
+                                        </h3>
+                                        <div className="flex gap-3">
+                                            <select
+                                                value={tipoCategoria}
+                                                onChange={(e) => setTipoCategoria(e.target.value)}
+                                                className="px-4 py-3 rounded-lg border border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none"
+                                            >
+                                                <option value="gastos">Gasto</option>
+                                                <option value="ingresos">Ingreso</option>
+                                            </select>
+                                            <input
+                                                type="text"
+                                                value={nuevaCategoria}
+                                                onChange={(e) => setNuevaCategoria(e.target.value)}
+                                                onKeyPress={(e) => e.key === 'Enter' && agregarCategoria()}
+                                                placeholder="Nombre de la categoría"
+                                                className="flex-1 px-4 py-3 rounded-lg border border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none"
+                                            />
+                                            <button
+                                                onClick={agregarCategoria}
+                                                className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-all"
+                                            >
+                                                Agregar
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="mb-8">
+                                        <h3 className="text-xl font-bold text-red-600 mb-4">
+                                            ⬇️ Categorías de Gastos ({categorias.gastos.length})
+                                        </h3>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            {categorias.gastos.map(cat => (
+                                                <div
+                                                    key={cat}
+                                                    className="flex justify-between items-center p-4 bg-red-50 rounded-lg border border-red-200 hover:shadow-md transition-all"
+                                                >
+                                                    <span className="font-medium text-gray-800">{cat}</span>
+                                                    <button
+                                                        onClick={() => eliminarCategoria('gastos', cat)}
+                                                        className="text-red-500 hover:text-red-700 text-xl"
+                                                        title="Eliminar categoría"
+                                                    >
+                                                        ❌
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <h3 className="text-xl font-bold text-green-600 mb-4">
+                                            ⬆️ Categorías de Ingresos ({categorias.ingresos.length})
+                                        </h3>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            {categorias.ingresos.map(cat => (
+                                                <div
+                                                    key={cat}
+                                                    className="flex justify-between items-center p-4 bg-green-50 rounded-lg border border-green-200 hover:shadow-md transition-all"
+                                                >
+                                                    <span className="font-medium text-gray-800">{cat}</span>
+                                                    <button
+                                                        onClick={() => eliminarCategoria('ingresos', cat)}
+                                                        className="text-red-500 hover:text-red-700 text-xl"
+                                                        title="Eliminar categoría"
+                                                    >
+                                                        ❌
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-8 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                                        <p className="text-sm text-gray-700">
+                                            💡 <strong>Consejo:</strong> Las categorías personalizadas se guardan automáticamente y estarán disponibles al registrar transacciones.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Footer */}
+                        <div className="text-center mt-8 text-white text-sm">
+                            <p className="text-lg font-bold mb-2">🎉 ¡APP COMPLETA Y FUNCIONAL!</p>
+                            <p className="text-blue-100">✅ Todas las funcionalidades implementadas • ✅ Lista para convertir a APK</p>
+                            <p className="text-blue-200 mt-2 text-xs">Paso 6 (opcional - futuro): Multi-usuario + Firebase en la nube</p>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
