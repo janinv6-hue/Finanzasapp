@@ -8,3 +8,4 @@ local.properties
 *.apk
 *.ap_
 *.dex
+/node_modules
