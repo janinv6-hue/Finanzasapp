@@ -40,7 +40,7 @@
 </head>
 <body>
     <div id="root"></div>
-
+    <script src="capacitor.js"></script>
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
 
@@ -178,7 +178,7 @@
                         const result = await Filesystem.writeFile({
                             path: nombreArchivo,
                             data: base64,
-                            directory: Directory.Documents
+                            directory: 'DOCUMENTS'
                         });
                         
                         console.log('Archivo guardado:', result);
@@ -186,7 +186,7 @@
                         // Obtener la URI del archivo guardado
                         const uriResult = await Filesystem.getUri({
                             path: nombreArchivo,
-                            directory: Directory.Documents
+                            directory: 'DOCUMENTS'
                         });
                         
                         // Compartir el archivo

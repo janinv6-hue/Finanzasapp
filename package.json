@@ -1,7 +1,6 @@
 {
   "name": "finanzas-app",
   "version": "1.0.0",
-  "description": "",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -14,5 +13,15 @@
     "@capacitor/core": "^7.4.4",
     "@capacitor/filesystem": "^7.1.5",
     "@capacitor/share": "^7.0.2"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/janinv6-hue/Finanzasapp.git"
+  },
+  "keywords": [],
+  "bugs": {
+    "url": "https://github.com/janinv6-hue/Finanzasapp/issues"
+  },
+  "homepage": "https://github.com/janinv6-hue/Finanzasapp#readme",
+  "description": ""
 }
