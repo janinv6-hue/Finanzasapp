@@ -45,8 +45,8 @@
         const { useState, useEffect, useMemo, useRef } = React;
 
         const CATEGORIAS_INICIALES = { 
-            ingresos:['Salario','Freelance','Inversiones','Otros Ingresos'], 
-            gastos:['Alimentación','Transporte','Vivienda','Entretenimiento','Salud','Educación','Otros Gastos'] 
+            ingresos:['Nomina','Comisiones','Extras','Ventas'], 
+            gastos:['Comida','Salud/médicos','Renta','Transporte','Personal','Comunicación','Cultura y ocio','Costo de ventas','Ahorro e Inversión','Festejos','Regalos','Gastos del Hogar','Unitec','Contador'] 
         };
 
         function Toast({ message, onClose }) {
@@ -80,22 +80,34 @@
                 if(!canvasRef.current || !transacciones || transacciones.length===0) return;
                 if(chartRef.current) chartRef.current.destroy();
                 
-                const ingresos = transacciones.filter(t=>t.tipo==='ingreso');
-                const gastos = transacciones.filter(t=>t.tipo==='gasto');
+                // Agrupar por categoría sumando montos
+                const agrupar = (tipo) => {
+                    const mapa = {};
+                    transacciones.filter(t=>t.tipo===tipo).forEach(t=>{
+                        mapa[t.categoria] = (mapa[t.categoria]||0) + t.monto;
+                    });
+                    return mapa;
+                };
+                
+                const ingresosMap = agrupar('ingreso');
+                const gastosMap = agrupar('gasto');
+                
+                // Unión de todas las categorías
+                const todasCategorias = [...new Set([...Object.keys(ingresosMap), ...Object.keys(gastosMap)])];
                 
                 const data = {
-                    labels:[...ingresos.map(t=>t.categoria), ...gastos.map(t=>t.categoria)],
+                    labels: todasCategorias,
                     datasets:[
                         { 
                             label:'Ingresos', 
-                            data:ingresos.map(t=>t.monto), 
+                            data: todasCategorias.map(c=>ingresosMap[c]||0), 
                             backgroundColor:'#10B981', 
                             borderColor:'#fff', 
                             borderWidth:2 
                         },
                         { 
                             label:'Gastos', 
-                            data:gastos.map(t=>t.monto), 
+                            data: todasCategorias.map(c=>gastosMap[c]||0), 
                             backgroundColor:'#EF4444', 
                             borderColor:'#fff', 
                             borderWidth:2 
@@ -150,7 +162,40 @@
             return <div className="chart-container"><canvas ref={canvasRef}></canvas></div>;
         }
 
-        // Función corregida para exportar Excel con Capacitor
+        // Función para solicitar permisos de almacenamiento en Android
+        async function solicitarPermisosAlmacenamiento() {
+            try {
+                if (!window.Capacitor || !window.Capacitor.Plugins) {
+                    console.log('Capacitor no disponible - modo web');
+                    return true;
+                }
+
+                const { Filesystem } = window.Capacitor.Plugins;
+                
+                // Verificar si tenemos permisos
+                try {
+                    const permisos = await Filesystem.checkPermissions();
+                    console.log('Estado de permisos:', permisos);
+                    
+                    if (permisos.publicStorage !== 'granted') {
+                        console.log('Solicitando permisos...');
+                        const resultado = await Filesystem.requestPermissions();
+                        console.log('Resultado de solicitud:', resultado);
+                        return resultado.publicStorage === 'granted';
+                    }
+                    return true;
+                } catch (error) {
+                    console.log('Error al verificar permisos:', error);
+                    // Si no existe el método, asumimos que los permisos están OK
+                    return true;
+                }
+            } catch (error) {
+                console.error('Error en solicitud de permisos:', error);
+                return false;
+            }
+        }
+
+        // Función mejorada para exportar Excel con Capacitor
         async function guardarYCompartirExcel(nombreArchivo, wb, mostrarToast){
             try{
                 // Verificar si Capacitor está disponible
@@ -161,7 +206,14 @@
                     return;
                 }
 
-                const { Filesystem, Directory } = window.Capacitor.Plugins;
+                // Solicitar permisos primero
+                const permisosOK = await solicitarPermisosAlmacenamiento();
+                if (!permisosOK) {
+                    mostrarToast('⚠️ Se necesitan permisos de almacenamiento');
+                    return;
+                }
+
+                const { Filesystem } = window.Capacitor.Plugins;
                 const { Share } = window.Capacitor.Plugins;
                 
                 // Convertir workbook a array buffer
@@ -238,6 +290,21 @@
             });
             const [nuevaCategoria,setNuevaCategoria]=useState('');
             const [tipoCategoria,setTipoCategoria]=useState('gastos');
+            const [permisosVerificados, setPermisosVerificados] = useState(false);
+
+            // Verificar permisos al iniciar la app
+            useEffect(() => {
+                const verificarPermisos = async () => {
+                    const resultado = await solicitarPermisosAlmacenamiento();
+                    setPermisosVerificados(resultado);
+                    if (!resultado) {
+                        mostrarToast('⚠️ Algunos permisos no fueron otorgados');
+                    } else {
+                        console.log('✅ Permisos verificados correctamente');
+                    }
+                };
+                verificarPermisos();
+            }, []);
 
             // Cargar datos guardados
             useEffect(()=>{ 
@@ -342,49 +409,120 @@
             const {ingresos,gastos,balance}=calcularBalance();
             const categoriasDisponibles=formulario.tipo==='ingreso'?categorias.ingresos:categorias.gastos;
 
-            // Función para exportar a Excel
+            // Función para exportar a Excel con formato bonito (dos columnas: Gastos | Ingresos)
             const exportarExcel = async () => {
                 if(transaccionesFiltradas.length===0){ 
                     alert('No hay transacciones para exportar'); 
                     return; 
                 }
                 
-                const {ingresos,gastos,balance}=calcularBalance();
-                const datosExcel=transaccionesFiltradas.map(t=>({ 
-                    'Fecha':new Date(t.fecha).toLocaleDateString('es-MX'), 
-                    'Tipo':t.tipo==='ingreso'?'Ingreso':'Gasto', 
-                    'Categoría':t.categoria, 
-                    'Descripción':t.descripcion, 
-                    'Monto':t.monto 
-                }));
+                if (!permisosVerificados) {
+                    const resultado = await solicitarPermisosAlmacenamiento();
+                    setPermisosVerificados(resultado);
+                    if (!resultado) {
+                        mostrarToast('⚠️ Se necesitan permisos para exportar');
+                        return;
+                    }
+                }
                 
-                datosExcel.push({}); 
-                datosExcel.push({ 
-                    'Fecha':'',
-                    'Tipo':'',
-                    'Categoría':'',
-                    'Descripción':'TOTAL INGRESOS',
-                    'Monto':ingresos 
+                const {ingresos: totalIngresos, gastos: totalGastos, balance} = calcularBalance();
+                const gastosList = transaccionesFiltradas.filter(t=>t.tipo==='gasto');
+                const ingresosList = transaccionesFiltradas.filter(t=>t.tipo==='ingreso');
+                const maxRows = Math.max(gastosList.length, ingresosList.length);
+
+                // Construir datos fila por fila: [Fecha G, Importe G, Desc G, Cat G, (vacía), Fecha I, Importe I, Desc I, Cat I]
+                const wb = XLSX.utils.book_new();
+                const ws = {};
+                const R = (r,c) => XLSX.utils.encode_cell({r,c});
+
+                // Estilos
+                const headerFill = { patternType:'solid', fgColor:{rgb:'FF6B35'} };
+                const headerFont = { bold:true, color:{rgb:'FFFFFF'}, name:'Arial', sz:11 };
+                const subHeaderFill = { patternType:'solid', fgColor:{rgb:'F5F5F5'} };
+                const subHeaderFont = { bold:true, name:'Arial', sz:10 };
+                const titleFontGastos = { bold:true, color:{rgb:'FF6B35'}, name:'Arial', sz:13 };
+                const titleFontIngresos = { bold:true, color:{rgb:'FF6B35'}, name:'Arial', sz:13 };
+                const borderStyle = { style:'thin', color:{rgb:'DDDDDD'} };
+                const cellBorder = { top:borderStyle, bottom:borderStyle, left:borderStyle, right:borderStyle };
+                const currencyFmt = '$#,##0.00';
+                const dateFmt = 'dd/mm/yyyy';
+                const totalFill = { patternType:'solid', fgColor:{rgb:'FFF3EC'} };
+                const totalFont = { bold:true, name:'Arial', sz:10, color:{rgb:'CC4400'} };
+                const balanceFill = { patternType:'solid', fgColor:{rgb:'FF6B35'} };
+                const balanceFont = { bold:true, name:'Arial', sz:11, color:{rgb:'FFFFFF'} };
+                const evenFill = { patternType:'solid', fgColor:{rgb:'FAFAFA'} };
+                const oddFill = { patternType:'solid', fgColor:{rgb:'FFFFFF'} };
+                const dataFont = { name:'Arial', sz:10 };
+
+                const setCell = (addr, v, s) => { ws[addr] = { v, s: s||{} }; };
+                const setNum = (addr, v, s) => { ws[addr] = { v, t:'n', z: currencyFmt, s: s||{} }; };
+
+                // Fila 0: Títulos de secciones (A=Gastos, F=Ingresos)
+                ws[R(0,0)] = { v:'Gastos', s:{ font:titleFontGastos, alignment:{horizontal:'left'} } };
+                ws[R(0,5)] = { v:'Ingresos', s:{ font:titleFontIngresos, alignment:{horizontal:'left'} } };
+
+                // Fila 1: separador vacío
+                // Fila 2: encabezados Gastos
+                const gastosHeaders = ['Fecha','Importe','Descripción','Categoría'];
+                const ingresosHeaders = ['Fecha','Importe','Descripción','Categoría'];
+                gastosHeaders.forEach((h,i) => {
+                    ws[R(2,i)] = { v:h, s:{ fill:subHeaderFill, font:subHeaderFont, border:cellBorder, alignment:{horizontal:'center'} } };
                 });
-                datosExcel.push({ 
-                    'Fecha':'',
-                    'Tipo':'',
-                    'Categoría':'',
-                    'Descripción':'TOTAL GASTOS',
-                    'Monto':gastos 
+                ingresosHeaders.forEach((h,i) => {
+                    ws[R(2,5+i)] = { v:h, s:{ fill:subHeaderFill, font:subHeaderFont, border:cellBorder, alignment:{horizontal:'center'} } };
                 });
-                datosExcel.push({ 
-                    'Fecha':'',
-                    'Tipo':'',
-                    'Categoría':'',
-                    'Descripción':'BALANCE',
-                    'Monto':balance 
-                });
-                
-                const ws=XLSX.utils.json_to_sheet(datosExcel);
-                const wb=XLSX.utils.book_new(); 
-                XLSX.utils.book_append_sheet(wb,ws,'Transacciones');
-                
+
+                // Datos
+                for(let i=0;i<maxRows;i++){
+                    const rowFill = i%2===0 ? oddFill : evenFill;
+                    const g = gastosList[i];
+                    if(g){
+                        ws[R(3+i,0)] = { v:new Date(g.fecha).toLocaleDateString('es-MX'), s:{ font:dataFont, fill:rowFill, border:cellBorder, alignment:{horizontal:'center'} } };
+                        setNum(R(3+i,1), g.monto, { font:dataFont, fill:rowFill, border:cellBorder, alignment:{horizontal:'right'} });
+                        ws[R(3+i,2)] = { v:g.descripcion||'', s:{ font:dataFont, fill:rowFill, border:cellBorder } };
+                        ws[R(3+i,3)] = { v:g.categoria, s:{ font:dataFont, fill:rowFill, border:cellBorder } };
+                    } else {
+                        [0,1,2,3].forEach(c=>{ ws[R(3+i,c)] = { v:'', s:{ fill:rowFill, border:cellBorder } }; });
+                    }
+                    const ing = ingresosList[i];
+                    if(ing){
+                        ws[R(3+i,5)] = { v:new Date(ing.fecha).toLocaleDateString('es-MX'), s:{ font:dataFont, fill:rowFill, border:cellBorder, alignment:{horizontal:'center'} } };
+                        setNum(R(3+i,6), ing.monto, { font:dataFont, fill:rowFill, border:cellBorder, alignment:{horizontal:'right'} });
+                        ws[R(3+i,7)] = { v:ing.descripcion||'', s:{ font:dataFont, fill:rowFill, border:cellBorder } };
+                        ws[R(3+i,8)] = { v:ing.categoria, s:{ font:dataFont, fill:rowFill, border:cellBorder } };
+                    } else {
+                        [5,6,7,8].forEach(c=>{ ws[R(3+i,c)] = { v:'', s:{ fill:rowFill, border:cellBorder } }; });
+                    }
+                }
+
+                // Totales
+                const totRow = 3 + maxRows + 1;
+                ws[R(totRow,2)] = { v:'Total Gastos', s:{ font:totalFont, fill:totalFill, border:cellBorder, alignment:{horizontal:'right'} } };
+                ws[R(totRow,3)] = { v:'', s:{ fill:totalFill, border:cellBorder } };
+                setNum(R(totRow,1), totalGastos, { font:totalFont, fill:totalFill, border:cellBorder, alignment:{horizontal:'right'} });
+                ws[R(totRow,7)] = { v:'Total Ingresos', s:{ font:totalFont, fill:totalFill, border:cellBorder, alignment:{horizontal:'right'} } };
+                ws[R(totRow,8)] = { v:'', s:{ fill:totalFill, border:cellBorder } };
+                setNum(R(totRow,6), totalIngresos, { font:totalFont, fill:totalFill, border:cellBorder, alignment:{horizontal:'right'} });
+                [0,4,5].forEach(c=>{ ws[R(totRow,c)] = { v:'', s:{ fill:totalFill, border:cellBorder } }; });
+
+                // Balance
+                const balRow = totRow + 1;
+                ws[R(balRow,0)] = { v:'', s:{ fill:balanceFill } };
+                ws[R(balRow,1)] = { v:'BALANCE', s:{ font:balanceFont, fill:balanceFill, alignment:{horizontal:'right'} } };
+                setNum(R(balRow,2), balance, { font:{ bold:true, name:'Arial', sz:11, color:{rgb: balance>=0 ? '00AA44' : 'FF0000'} }, fill:balanceFill, alignment:{horizontal:'left'} });
+                [3,4,5,6,7,8].forEach(c=>{ ws[R(balRow,c)] = { v:'', s:{ fill:balanceFill } }; });
+
+                // Rango y anchos de columna
+                const lastRow = balRow;
+                ws['!ref'] = XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:lastRow,c:8}});
+                ws['!cols'] = [
+                    {wch:12},{wch:12},{wch:28},{wch:20},
+                    {wch:3},
+                    {wch:12},{wch:12},{wch:28},{wch:20}
+                ];
+
+                XLSX.utils.book_append_sheet(wb, ws, 'Finanzas');
+
                 let nombrePeriodo='Todas';
                 if(filtroModo==='mes-actual') nombrePeriodo='MesActual';
                 else if(filtroModo==='mes-especifico'){ 
@@ -402,64 +540,74 @@
             return (
                 <div className="app-container">
                     {/* Header */}
-                    <div className="header flex items-center justify-between px-4">
-                        <h1 className="text-lg font-bold text-gray-800">💰 Registro de Gastos</h1>
-                        {pestanaActiva==='transacciones'&&(
-                            <div className="flex gap-2">
-                                <button 
-                                    onClick={()=>setModalFiltros(true)} 
-                                    className="text-sm bg-blue-600 text-white px-3 py-1.5 rounded-lg"
-                                >
-                                    📅 Filtrar
-                                </button>
-                                <button 
-                                    onClick={exportarExcel} 
-                                    className="text-sm bg-green-600 text-white px-3 py-1.5 rounded-lg"
-                                >
-                                    📊 Excel
-                                </button>
-                            </div>
-                        )}
+                    <div className="header">
+                        <div className="px-4">
+                            <h1 className="text-2xl font-bold text-gray-800">💰 Mis Finanzas</h1>
+                        </div>
                     </div>
 
                     {/* Main Content */}
-                    <div className="main-content scrollbar-hide">
+                    <div className="main-content">
                         {pestanaActiva==='analisis'&&(
                             <div className="p-4 space-y-4">
                                 <div className="balance-card">
-                                    <div className="text-sm text-gray-500 mb-2">Balance Total</div>
-                                    <div className={`text-3xl font-bold ${balance>=0?'text-green-600':'text-red-600'}`}>
-                                        ${balance.toLocaleString('es-MX',{minimumFractionDigits:2})}
-                                    </div>
-                                    <div className="flex justify-between mt-4 pt-4 border-t border-gray-200">
+                                    <div className="flex justify-between items-center mb-4">
                                         <div>
-                                            <div className="text-xs text-gray-500">Ingresos</div>
-                                            <div className="text-lg font-semibold text-green-600">
-                                                ${ingresos.toLocaleString('es-MX',{minimumFractionDigits:2})}
-                                            </div>
+                                            <p className="text-sm text-gray-600">Balance Total</p>
+                                            <p className={`text-3xl font-bold ${balance>=0?'text-green-600':'text-red-600'}`}>
+                                                ${balance.toLocaleString('es-MX',{minimumFractionDigits:2})}
+                                            </p>
                                         </div>
                                         <div className="text-right">
-                                            <div className="text-xs text-gray-500">Gastos</div>
-                                            <div className="text-lg font-semibold text-red-600">
+                                            <button 
+                                                onClick={()=>setModalFiltros(true)} 
+                                                className="bg-gray-100 px-3 py-2 rounded-lg text-sm font-semibold"
+                                            >
+                                                🔍 Filtrar
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="bg-green-50 p-3 rounded-lg">
+                                            <p className="text-xs text-green-700 mb-1">Ingresos</p>
+                                            <p className="text-xl font-bold text-green-600">
+                                                ${ingresos.toLocaleString('es-MX',{minimumFractionDigits:2})}
+                                            </p>
+                                        </div>
+                                        <div className="bg-red-50 p-3 rounded-lg">
+                                            <p className="text-xs text-red-700 mb-1">Gastos</p>
+                                            <p className="text-xl font-bold text-red-600">
                                                 ${gastos.toLocaleString('es-MX',{minimumFractionDigits:2})}
-                                            </div>
+                                            </p>
                                         </div>
                                     </div>
                                 </div>
-                                <div className="bg-white rounded-lg p-4 shadow">
-                                    <h3 className="text-lg font-bold mb-4 text-gray-800">Gráfico de Transacciones</h3>
+                                <div className="balance-card">
+                                    <h3 className="font-bold text-gray-800 mb-3">📊 Análisis por Categoría</h3>
                                     <GraficoTransacciones transacciones={transaccionesFiltradas} />
                                 </div>
+                                <button 
+                                    onClick={exportarExcel} 
+                                    className="w-full bg-green-600 text-white py-3 rounded-lg font-semibold"
+                                >
+                                    📥 Exportar a Excel
+                                </button>
                             </div>
                         )}
 
                         {pestanaActiva==='transacciones'&&(
                             <div className="p-4">
+                                <div className="flex justify-between items-center mb-4">
+                                    <h2 className="text-xl font-bold text-gray-800">Historial</h2>
+                                    <span className="text-sm text-gray-600">
+                                        {transaccionesFiltradas.length} registros
+                                    </span>
+                                </div>
                                 {transaccionesFiltradas.length===0?(
                                     <div className="text-center py-12 text-gray-500">
                                         <div className="text-4xl mb-2">📝</div>
-                                        <p className="text-sm">No hay transacciones registradas</p>
-                                        <p className="text-xs mt-2">Presiona el botón + para agregar una</p>
+                                        <p>No hay transacciones</p>
+                                        <p className="text-sm">Presiona + para agregar</p>
                                     </div>
                                 ):(
                                     <div className="space-y-2">
@@ -468,21 +616,27 @@
                                                 <div className="flex justify-between items-start">
                                                     <div className="flex-1">
                                                         <div className="flex items-center gap-2 mb-1">
-                                                            <span className={`text-xs px-2 py-0.5 rounded ${t.tipo==='ingreso'?'bg-green-100 text-green-700':'bg-red-100 text-red-700'}`}>
-                                                                {t.tipo==='ingreso'?'Ingreso':'Gasto'}
+                                                            <span className="text-2xl">
+                                                                {t.tipo==='ingreso'?'💰':'💸'}
                                                             </span>
-                                                            <span className="text-sm font-semibold text-gray-800">{t.categoria}</span>
+                                                            <div>
+                                                                <p className="font-semibold text-gray-800">{t.categoria}</p>
+                                                                <p className="text-xs text-gray-500">
+                                                                    {new Date(t.fecha).toLocaleDateString('es-MX')}
+                                                                </p>
+                                                            </div>
                                                         </div>
-                                                        {t.descripcion&&<p className="text-sm text-gray-600 mb-1">{t.descripcion}</p>}
-                                                        <p className="text-xs text-gray-400">{new Date(t.fecha).toLocaleDateString('es-MX')}</p>
+                                                        {t.descripcion&&(
+                                                            <p className="text-sm text-gray-600 ml-10">{t.descripcion}</p>
+                                                        )}
                                                     </div>
-                                                    <div className="text-right ml-4">
-                                                        <div className={`text-lg font-bold ${t.tipo==='ingreso'?'text-green-600':'text-red-600'}`}>
+                                                    <div className="text-right">
+                                                        <p className={`text-lg font-bold ${t.tipo==='ingreso'?'text-green-600':'text-red-600'}`}>
                                                             {t.tipo==='ingreso'?'+':'-'}${t.monto.toLocaleString('es-MX',{minimumFractionDigits:2})}
-                                                        </div>
+                                                        </p>
                                                         <button 
                                                             onClick={()=>eliminarTransaccion(t.id)} 
-                                                            className="text-xs text-red-500 hover:text-red-700 mt-1"
+                                                            className="text-xs text-red-500 mt-1"
                                                         >
                                                             Eliminar
                                                         </button>
@@ -496,116 +650,125 @@
                         )}
 
                         {pestanaActiva==='categorias'&&(
-                            <div className="p-4 space-y-6">
-                                <div>
-                                    <h3 className="text-lg font-bold mb-3 text-gray-800">Categorías de Ingresos</h3>
+                            <div className="p-4 space-y-4">
+                                <div className="balance-card">
+                                    <h3 className="font-bold text-gray-800 mb-3">Agregar Categoría</h3>
+                                    <div className="space-y-3">
+                                        <select 
+                                            value={tipoCategoria} 
+                                            onChange={e=>setTipoCategoria(e.target.value)} 
+                                            className="w-full p-3 border rounded-lg"
+                                        >
+                                            <option value="gastos">Categoría de Gastos</option>
+                                            <option value="ingresos">Categoría de Ingresos</option>
+                                        </select>
+                                        <div className="flex gap-2">
+                                            <input 
+                                                type="text" 
+                                                value={nuevaCategoria} 
+                                                onChange={e=>setNuevaCategoria(e.target.value)} 
+                                                placeholder="Nombre de la categoría" 
+                                                className="flex-1 p-3 border rounded-lg"
+                                            />
+                                            <button 
+                                                onClick={agregarCategoria} 
+                                                className="bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold"
+                                            >
+                                                +
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="balance-card">
+                                    <h3 className="font-bold text-gray-800 mb-3">💰 Categorías de Ingresos</h3>
                                     <div className="space-y-2">
                                         {categorias.ingresos.map((cat,idx)=>(
-                                            <div key={idx} className="flex justify-between items-center bg-white p-3 rounded-lg">
-                                                <span className="text-gray-700">{cat}</span>
+                                            <div key={idx} className="flex justify-between items-center p-2 bg-green-50 rounded">
+                                                <span className="text-green-800">{cat}</span>
                                                 <button 
                                                     onClick={()=>eliminarCategoria('ingresos',cat)} 
                                                     className="text-red-500 text-sm"
                                                 >
-                                                    Eliminar
+                                                    ✕
                                                 </button>
                                             </div>
                                         ))}
                                     </div>
                                 </div>
-                                <div>
-                                    <h3 className="text-lg font-bold mb-3 text-gray-800">Categorías de Gastos</h3>
+
+                                <div className="balance-card">
+                                    <h3 className="font-bold text-gray-800 mb-3">💸 Categorías de Gastos</h3>
                                     <div className="space-y-2">
                                         {categorias.gastos.map((cat,idx)=>(
-                                            <div key={idx} className="flex justify-between items-center bg-white p-3 rounded-lg">
-                                                <span className="text-gray-700">{cat}</span>
+                                            <div key={idx} className="flex justify-between items-center p-2 bg-red-50 rounded">
+                                                <span className="text-red-800">{cat}</span>
                                                 <button 
                                                     onClick={()=>eliminarCategoria('gastos',cat)} 
                                                     className="text-red-500 text-sm"
                                                 >
-                                                    Eliminar
+                                                    ✕
                                                 </button>
                                             </div>
                                         ))}
                                     </div>
-                                </div>
-                                <div className="bg-white p-4 rounded-lg">
-                                    <h4 className="font-semibold mb-3 text-gray-800">Agregar Nueva Categoría</h4>
-                                    <select 
-                                        value={tipoCategoria} 
-                                        onChange={e=>setTipoCategoria(e.target.value)} 
-                                        className="w-full p-2 border rounded-lg mb-2"
-                                    >
-                                        <option value="gastos">Gasto</option>
-                                        <option value="ingresos">Ingreso</option>
-                                    </select>
-                                    <input 
-                                        type="text" 
-                                        value={nuevaCategoria} 
-                                        onChange={e=>setNuevaCategoria(e.target.value)} 
-                                        placeholder="Nombre de la categoría" 
-                                        className="w-full p-2 border rounded-lg mb-2"
-                                    />
-                                    <button 
-                                        onClick={agregarCategoria} 
-                                        className="w-full bg-blue-600 text-white py-2 rounded-lg"
-                                    >
-                                        Agregar
-                                    </button>
                                 </div>
                             </div>
                         )}
                     </div>
 
-                    {/* FAB */}
-                    {pestanaActiva==='transacciones'&&(
-                        <div className="fab" onClick={()=>setModalAbierto(true)}>
-                            <span className="text-white text-2xl">+</span>
-                        </div>
-                    )}
+                    {/* FAB Button */}
+                    <div className="fab" onClick={()=>setModalAbierto(true)}>
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                            <path d="M12 5v14M5 12h14" stroke="white" strokeWidth="2" strokeLinecap="round"/>
+                        </svg>
+                    </div>
 
-                    {/* Bottom Nav */}
+                    {/* Bottom Navigation */}
                     <div className="bottom-nav">
                         <div 
                             className={`bottom-nav-item ${pestanaActiva==='analisis'?'active':''}`} 
                             onClick={()=>setPestanaActiva('analisis')}
                         >
-                            <span className="text-2xl">📈</span>
-                            <span className="text-xs">Análisis</span>
+                            <span className="text-2xl">📊</span>
+                            <span className="text-xs font-medium">Análisis</span>
                         </div>
                         <div 
                             className={`bottom-nav-item ${pestanaActiva==='transacciones'?'active':''}`} 
                             onClick={()=>setPestanaActiva('transacciones')}
                         >
-                            <span className="text-2xl">📊</span>
-                            <span className="text-xs">Transacciones</span>
+                            <span className="text-2xl">📝</span>
+                            <span className="text-xs font-medium">Historial</span>
                         </div>
                         <div 
                             className={`bottom-nav-item ${pestanaActiva==='categorias'?'active':''}`} 
                             onClick={()=>setPestanaActiva('categorias')}
                         >
                             <span className="text-2xl">🏷️</span>
-                            <span className="text-xs">Categorías</span>
+                            <span className="text-xs font-medium">Categorías</span>
                         </div>
                     </div>
 
-                    {/* Modal Agregar Transacción */}
+                    {/* Modal Nueva Transacción */}
                     <Modal 
                         isOpen={modalAbierto} 
                         onClose={()=>setModalAbierto(false)} 
                         title="Nueva Transacción"
                     >
                         <div className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-semibold mb-2 text-gray-700">Tipo</label>
-                                <select 
-                                    value={formulario.tipo} 
-                                    onChange={e=>setFormulario({...formulario,tipo:e.target.value,categoria:''})} 
-                                    className="w-full p-3 border rounded-lg"
+                            <div className="flex gap-2">
+                                <button 
+                                    onClick={()=>setFormulario({...formulario,tipo:'gasto'})} 
+                                    className={`flex-1 py-3 rounded-lg font-semibold ${formulario.tipo==='gasto'?'bg-red-600 text-white':'bg-gray-100 text-gray-700'}`}
                                 >
-                                    <option value="gasto">Gasto</option>
-                                    <option value="ingreso">Ingreso</option>
-                                </select>
+                                    💸 Gasto
+                                </button>
+                                <button 
+                                    onClick={()=>setFormulario({...formulario,tipo:'ingreso'})} 
+                                    className={`flex-1 py-3 rounded-lg font-semibold ${formulario.tipo==='ingreso'?'bg-green-600 text-white':'bg-gray-100 text-gray-700'}`}
+                                >
+                                    💰 Ingreso
+                                </button>
                             </div>
                             <div>
                                 <label className="block text-sm font-semibold mb-2 text-gray-700">Categoría *</label>

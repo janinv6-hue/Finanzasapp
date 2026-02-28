@@ -1,0 +1,57 @@
+import { useFinance } from "../context/FinanceContext";
+
+const meses = [
+  "Enero","Febrero","Marzo","Abril","Mayo","Junio",
+  "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"
+];
+
+function MonthNavigator() {
+  const { filtro, setFiltro } = useFinance();
+
+  if (filtro.tipo !== "mes") return null;
+
+  const cambiarMes = (direccion) => {
+    let nuevoMes = filtro.mes + direccion;
+    let nuevoAnio = filtro.anio;
+
+    if (nuevoMes < 0) {
+      nuevoMes = 11;
+      nuevoAnio--;
+    }
+
+    if (nuevoMes > 11) {
+      nuevoMes = 0;
+      nuevoAnio++;
+    }
+
+    setFiltro({
+      tipo: "mes",
+      mes: nuevoMes,
+      anio: nuevoAnio
+    });
+  };
+
+  return (
+    <div className="flex items-center justify-center gap-6 mb-4">
+      <button
+        onClick={() => cambiarMes(-1)}
+        className="text-2xl text-gray-500 hover:text-black transition"
+      >
+        ◀
+      </button>
+
+      <h3 className="text-lg font-semibold text-gray-700">
+        📅 {meses[filtro.mes]} {filtro.anio}
+      </h3>
+
+      <button
+        onClick={() => cambiarMes(1)}
+        className="text-2xl text-gray-500 hover:text-black transition"
+      >
+        ▶
+      </button>
+    </div>
+  );
+}
+
+export default MonthNavigator;

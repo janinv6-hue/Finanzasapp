@@ -1,11 +1,43 @@
-﻿build/
-.gradle
-local.properties
-*.iml
-.idea/
+﻿# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Vite / Build
+dist/
+build/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs
+*.log
+
+# OS
 .DS_Store
-/captures
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+local.properties
 *.apk
 *.ap_
 *.dex
-/node_modules
+
+# Capacitor
+android/capacitor-cordova-android-plugins/
+
+# Misc
+coverage/

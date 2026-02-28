@@ -1,4 +1,4 @@
-package com.Janin.finanzas;
+package com.misfinanzas.app;
 
 import com.getcapacitor.BridgeActivity;
 
